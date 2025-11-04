@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学習プラン自動生成ツール</title>
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#111827; --muted:#94a3b8; --text:#e5e7eb;
+      --accent:#22c55e; --accent2:#60a5fa; --danger:#ef4444; --warn:#f59e0b; --border:rgba(148,163,184,.2);
+    }
+    html,body{height:100%;}
+    body{
+      margin:0;background:linear-gradient(180deg,#0b1220,#0f172a 35%,#0b1220);
+      color:var(--text);
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans JP","Apple Color Emoji","Segoe UI Emoji";
+    }
+    .wrap{max-width:1100px;margin:24px auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .title{font-weight:800;font-size:24px;letter-spacing:.2px}
+    .subtitle{color:var(--muted);font-size:13px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{
+      background:rgba(17,24,39,.6); backdrop-filter:blur(6px);
+      border:1px solid rgba(148,163,184,.15); border-radius:16px; padding:16px; overflow:hidden;
+    }
+    .card h3{margin:0 0 8px;font-size:16px}
+    .section-label{margin:12px 0 6px;color:#cbd5e1;font-size:13px;font-weight:700;letter-spacing:.2px}
+    label{font-size:12px;color:var(--muted);display:block;margin:10px 0 6px}
+    input[type="text"],input[type="date"],input[type="time"],input[type="number"],select,textarea{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text);box-sizing:border-box;
+    }
+    textarea{min-height:72px;resize:vertical;max-height:220px}
+    .row{display:flex;gap:12px}
+    .row > *{flex:1;min-width:0}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+    .chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;cursor:pointer;font-size:12px;user-select:none}
+    .chip input{margin-right:6px}
+    .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+    button{cursor:pointer;border:none;border-radius:12px;padding:10px 14px;background:var(--accent2);color:#081225;font-weight:700}
+    button.secondary{background:#1f2937;color:var(--text);border:1px solid var(--border)}
+    button.warn{background:var(--warn);color:#111}
+    button.danger{background:var(--danger)}
+    .small{font-size:12px;color:var(--muted)}
+    .footer{margin-top:24px;color:var(--muted);font-size:12px}
+    #restDays{height:140px;overflow:auto}
+
+    /* === テーブル（メモ列を最大化） === */
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;table-layout:fixed}
+    th,td{padding:10px 12px;text-align:left;vertical-align:top;word-wrap:break-word}
+    thead th{font-size:12px;color:var(--muted)}
+    tbody tr{background:#0b1220;border:1px solid var(--border)}
+    tbody td:first-child{border-radius:10px 0 0 10px}
+    tbody td:last-child{border-radius:0 10px 10px 0}
+    .plan col:nth-child(1){width:120px;}  /* 日付 */
+    .plan col:nth-child(2){width:86px;}   /* 開始 */
+    .plan col:nth-child(3){width:86px;}   /* 終了 */
+    .plan col:nth-child(4){width:240px;}  /* トピック */
+    .plan col:nth-child(5){width:72px;}   /* 時間 */
+    .plan col:nth-child(6){width:auto;}   /* メモ/リソース */
+    .plan th:nth-child(-n+5), .plan td:nth-child(-n+5){padding:6px 8px;font-size:12px}
+    .plan td:nth-child(-n+3), .plan th:nth-child(-n+3){white-space:nowrap}
+  </style>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">学習プラン自動生成ツール</div>
+        <div class="subtitle">フォーム入力 → 最適化 → Excel/CSV ダウンロード。サーバ不要・ローカルで動作。</div>
+      </div>
+      <div class="btns">
+        <button id="saveJson" class="secondary">設定をJSON保存</button>
+        <button id="loadJson" class="secondary">JSON読込</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- 基本設定 -->
+      <section class="card">
+        <h3>1) 基本設定</h3>
+        <div class="row">
+          <div>
+            <label>開始日</label>
+            <input type="date" id="startDate" />
+          </div>
+          <div>
+            <label>学習日数（合計・学習する日数）</label>
+            <input type="number" id="totalDays" min="1" max="365" value="30" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>1日の学習時間（1〜6時間）</label>
+            <input type="range" id="dailyHours" min="1" max="6" value="2" oninput="hoursOut.textContent=this.value+' 時間'" />
+            <div class="small">現在: <span id="hoursOut">2 時間</span></div>
+          </div>
+          <div>
+            <label>週あたりの学習可能日数（例: 5）</label>
+            <input type="number" id="daysPerWeek" min="1" max="7" value="5" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>起床時刻</label>
+            <input type="time" id="wakeTime" value="07:00" />
+          </div>
+          <div>
+            <label>就寝時刻</label>
+            <input type="time" id="sleepTime" value="23:30" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>学習開始時刻（1日の学習ブロックの開始）</label>
+            <input type="time" id="studyStart" value="20:00" />
+          </div>
+          <div>
+            <label>休息日（曜日）</label>
+            <select id="restDays" multiple>
+              <option value="0">日</option><option value="1">月</option><option value="2">火</option>
+              <option value="3">水</option><option value="4">木</option><option value="5">金</option><option value="6">土</option>
+            </select>
+            <div class="small">※ Cmd/Ctrl で複数選択。未選択なら制約なし。</div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>OS</label>
+            <select id="os"><option>Windows</option><option>Mac</option><option>Linux</option></select>
+          </div>
+          <div>
+            <label>PCスペック（目安）</label>
+            <select id="spec">
+              <option>8GB RAM / Entry CPU</option><option selected>16GB RAM / Mid CPU</option><option>32GB RAM / High CPU</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>学習媒体</label>
+            <div class="chips" id="mediaChips">
+              <label class="chip"><input type="checkbox" value="市販本">市販本</label>
+              <label class="chip"><input type="checkbox" value="公式ドキュメント">公式ドキュメント</label>
+              <label class="chip"><input type="checkbox" value="Web教材">Web教材</label>
+              <label class="chip"><input type="checkbox" value="動画講座">動画講座</label>
+              <label class="chip"><input type="checkbox" value="演習サイト">演習サイト</label>
+            </div>
+          </div>
+          <div>
+            <label>学習スタイル</label>
+            <select id="style">
+              <option>インプット先行</option>
+              <option selected>作りながら覚える</option>
+              <option>テスト駆動/復習重視</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>本人の状況メモ（任意）</label>
+          <textarea id="notes" placeholder="例：周囲の目が気になりやすい／静かな時間帯を優先 など"></textarea>
+        </div>
+      </section>
+
+      <!-- 技術スタック -->
+      <section class="card">
+        <h3>2) 技術スタック選択（ジャンル分け）</h3>
+
+        <div class="section-label">サーバー</div>
+        <div class="chips" id="serverRadios">
+          <label class="chip"><input type="radio" name="server" value="python-django" checked>Python / Django</label>
+          <label class="chip"><input type="radio" name="server" value="java-spring">Java / Spring Boot</label>
+          <label class="chip"><input type="radio" name="server" value="node-express">Node.js / Express</label>
+          <label class="chip"><input type="radio" name="server" value="go-gin">Go / Gin</label>
+          <label class="chip"><input type="radio" name="server" value="ruby-rails">Ruby on Rails</label>
+          <label class="chip"><input type="radio" name="server" value="php-laravel">PHP / Laravel</label>
+        </div>
+
+        <div class="section-label">フロント</div>
+        <div class="chips" id="frontChks">
+          <label class="chip"><input type="checkbox" value="htmlcss" checked>HTML/CSS</label>
+          <label class="chip"><input type="checkbox" value="js">JavaScript</label>
+          <label class="chip"><input type="checkbox" value="ts">TypeScript</label>
+          <label class="chip"><input type="checkbox" value="react">React</label>
+          <label class="chip"><input type="checkbox" value="vue">Vue.js</label>
+          <label class="chip"><input type="checkbox" value="angular">Angular</label>
+          <label class="chip"><input type="checkbox" value="svelte">Svelte</label>
+          <label class="chip"><input type="checkbox" value="node">Node.js</label>
+        </div>
+
+        <div class="section-label">データベース</div>
+        <div class="chips" id="dbRadios">
+          <label class="chip"><input type="radio" name="db" value="postgres" checked>PostgreSQL</label>
+          <label class="chip"><input type="radio" name="db" value="mysql">MySQL</label>
+          <label class="chip"><input type="radio" name="db" value="oracle">Oracle DB</label>
+          <label class="chip"><input type="radio" name="db" value="sqlite">SQLite（ローカル）</label>
+        </div>
+
+        <div class="section-label">インフラ</div>
+        <div class="chips" id="infraChks">
+          <label class="chip"><input type="checkbox" value="aws">AWS</label>
+          <label class="chip"><input type="checkbox" value="azure">Azure</label>
+          <label class="chip"><input type="checkbox" value="gcp">GCP</label>
+          <label class="chip"><input type="checkbox" value="cloud9">Cloud9</label>
+          <label class="chip"><input type="checkbox" value="docker">Docker</label>
+          <label class="chip"><input type="checkbox" value="linux">Linux基礎</label>
+          <label class="chip"><input type="checkbox" value="gha">GitHub Actions</label>
+        </div>
+
+        <div class="section-label">その他</div>
+        <div class="chips" id="otherChks">
+          <label class="chip"><input type="checkbox" value="requirements">要件定義/外部・内部設計/テスト</label>
+          <label class="chip"><input type="checkbox" value="git">Git/GitHub（init/branch/PR/merge/README）</label>
+        </div>
+
+        <div class="row" style="margin-top:8px">
+          <div>
+            <label>経験レベル</label>
+            <select id="level">
+              <option>完全未経験</option>
+              <option selected>基礎済（条件分岐/繰返し/関数）</option>
+              <option>個人アプリ経験あり</option>
+            </select>
+          </div>
+          <div>
+            <label>目標タイプ</label>
+            <select id="goal">
+              <option selected>12月までにポートフォリオ1本</option>
+              <option>インターン応募用ミニアプリ×2</option>
+              <option>基礎固め＋資格(例: 基本情報)</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- 追加制約 -->
+      <section class="card">
+        <h3>3) 追加制約</h3>
+        <div class="row">
+          <div>
+            <label>不可日（祝/用事等で学習できない日、カンマ区切り）</label>
+            <input id="blackoutDates" type="text" placeholder="例: 2025-11-10,2025-11-23" />
+          </div>
+          <div>
+            <label>週の上限学習時間（任意）</label>
+            <input id="weeklyCap" type="number" min="1" max="50" placeholder="例: 12" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>復習比率（%）</label>
+            <input id="reviewPct" type="number" min="0" max="50" value="20" />
+          </div>
+          <div>
+            <label>演習/実装比率（%）</label>
+            <input id="practicePct" type="number" min="10" max="90" value="60" />
+          </div>
+        </div>
+        <div>
+          <label>メンタル・体調配慮（任意・短文）</label>
+          <input id="care" type="text" placeholder="例: 連続2日まで／低刺激の時間帯に配置" />
+        </div>
+      </section>
+
+      <!-- 実行 -->
+      <section class="card">
+        <h3>4) プラン生成 & 出力</h3>
+        <p class="small">「最適化してプラン生成」を押すと下に日別プランが表示され、Excel/CSVとしてダウンロードできます。</p>
+        <div class="btns">
+          <button id="genPlan">最適化してプラン生成</button>
+          <button id="exportXlsx" class="warn">Excel(.xlsx)出力</button>
+          <button id="exportCsv" class="secondary">CSV出力</button>
+          <button id="clear" class="danger">リセット</button>
+        </div>
+        <div style="margin-top:12px" class="small mono" id="summary"></div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h3>生成結果（日別プラン）</h3>
+      <div id="result"></div>
+    </section>
+
+    <div class="footer">
+      v1.4 — 経験レベル反映／学習日数＝学習した日だけカウント／UIはみ出し防止／列幅最適化。
+    </div>
+  </div>
+
+<script>
+  // ===== ユーティリティ =====
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  const fmtDate = d => d.toISOString().slice(0,10);
+  function addDays(date, n){ const d=new Date(date); d.setDate(d.getDate()+n); return d; }
+  function pad2(n){ return (""+n).padStart(2,'0'); }
+  function addHoursToTimeStr(timeStr, hours){
+    const [h,m] = timeStr.split(":").map(Number);
+    const total = h*60+m + Math.round(hours*60);
+    const hh = Math.floor(total/60)%24; const mm = total%60;
+    return pad2(hh)+":"+pad2(mm);
+  }
+  function parseMultiSelect(sel){ return Array.from(sel.selectedOptions).map(o=>Number(o.value)); }
+  function checkedValues(sel){ return Array.from($(sel).querySelectorAll('input[type=checkbox]:checked')).map(i=>i.value); }
+  function getRadioValue(name){ const el = document.querySelector(`input[name="${name}"]:checked`); return el?el.value:null; }
+
+  // ===== カリキュラム（サーバー別の基準ブロック） =====
+  const CURRICULUM = {
+    "python-django": [
+      {key:"py-basics", label:"Python基礎リフレッシュ", hrs:6},
+      {key:"django-intro", label:"Django入門(プロジェクト/アプリ/URL/ビュー)", hrs:6},
+      {key:"models-db", label:"モデル/マイグレーション/ORM/CRUD", hrs:10},
+      {key:"templates", label:"テンプレート/フォーム/バリデーション", hrs:8},
+      {key:"auth", label:"認証/ログイン/ログアウト/権限", hrs:6},
+      {key:"ui", label:"HTML/CSS/JSでUI改善", hrs:6},
+      {key:"proj", label:"ポートフォリオ実装/仕上げ/README", hrs:12}
+    ],
+    "java-spring": [
+      {key:"java-basics", label:"Java基礎リフレッシュ", hrs:8},
+      {key:"spring-boot-intro", label:"Spring Boot入門(Controller/Template)", hrs:8},
+      {key:"data-jpa", label:"JPA/エンティティ/リポジトリ/CRUD", hrs:12},
+      {key:"security", label:"Spring Security(ログイン/権限)", hrs:8},
+      {key:"ui", label:"HTML/CSS/JSでUI改善", hrs:6},
+      {key:"proj", label:"ポートフォリオ実装/仕上げ/README", hrs:12}
+    ],
+    "node-express": [
+      {key:"js-basics", label:"JavaScript/TypeScript基礎", hrs:8},
+      {key:"express-intro", label:"Express入門(ルーティング/ミドルウェア)", hrs:8},
+      {key:"db-access", label:"DB接続/Prisma/Knex/CRUD", hrs:10},
+      {key:"auth-jwt", label:"認証/セッション/JWT", hrs:6},
+      {key:"ui", label:"HTML/CSS/JSでUI改善", hrs:6},
+      {key:"proj", label:"API/SSR/仕上げ/README", hrs:12}
+    ],
+    "go-gin": [
+      {key:"go-basics", label:"Go基礎(構文/並行)", hrs:8},
+      {key:"gin-intro", label:"Gin入門(ルーティング/ハンドラ)", hrs:8},
+      {key:"db-gorm", label:"GORM/DB/CRUD", hrs:10},
+      {key:"auth", label:"認証/ミドルウェア", hrs:6},
+      {key:"ui", label:"HTML/CSS/JSでUI改善", hrs:6},
+      {key:"proj", label:"デプロイ/仕上げ/README", hrs:12}
+    ],
+    "ruby-rails": [
+      {key:"rb-basics", label:"Ruby基礎", hrs:6},
+      {key:"rails-intro", label:"Rails入門(MVC/ルーティング)", hrs:8},
+      {key:"rails-activerec", label:"ActiveRecord/CRUD", hrs:10},
+      {key:"auth", label:"Devise等", hrs:6},
+      {key:"ui", label:"View/Assets", hrs:6},
+      {key:"proj", label:"本番準備/README", hrs:12}
+    ],
+    "php-laravel": [
+      {key:"php-basics", label:"PHP基礎", hrs:6},
+      {key:"laravel-intro", label:"Laravel入門(ルート/コントローラ/Blade)", hrs:8},
+      {key:"eloquent", label:"Eloquent/CRUD", hrs:10},
+      {key:"auth", label:"Auth/Policy", hrs:6},
+      {key:"ui", label:"Blade/フロント連携", hrs:6},
+      {key:"proj", label:"本番準備/README", hrs:12}
+    ]
+  };
+
+  // ===== 入力保存/読込 =====
+  $('#saveJson').addEventListener('click', ()=>{
+    const data = collectInput();
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `study-plan-settings-${Date.now()}.json`;
+    a.click();
+  });
+  $('#loadJson').addEventListener('click', ()=>{
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json';
+    inp.onchange = () => {
+      const file = inp.files[0]; if(!file) return;
+      const fr = new FileReader();
+      fr.onload = () => { try{ applyInput(JSON.parse(fr.result)); }catch(e){ alert('JSONの読込に失敗しました'); } };
+      fr.readAsText(file);
+    }
+    inp.click();
+  });
+
+  function collectInput(){
+    return {
+      startDate: $('#startDate').value,
+      totalDays: Number($('#totalDays').value),
+      dailyHours: Number($('#dailyHours').value),
+      daysPerWeek: Number($('#daysPerWeek').value),
+      wakeTime: $('#wakeTime').value,
+      sleepTime: $('#sleepTime').value,
+      studyStart: $('#studyStart').value,
+      restDays: parseMultiSelect($('#restDays')),
+      os: $('#os').value,
+      spec: $('#spec').value,
+      media: checkedValues('#mediaChips'),
+      style: $('#style').value,
+      notes: $('#notes').value,
+      server: getRadioValue('server'),
+      front: checkedValues('#frontChks'),
+      db: getRadioValue('db'),
+      infra: checkedValues('#infraChks'),
+      others: checkedValues('#otherChks'),
+      level: $('#level').value,
+      goal: $('#goal').value,
+      blackoutDates: $('#blackoutDates').value,
+      weeklyCap: $('#weeklyCap').value ? Number($('#weeklyCap').value) : null,
+      reviewPct: Number($('#reviewPct').value),
+      practicePct: Number($('#practicePct').value),
+      care: $('#care').value
+    };
+  }
+  function applyInput(d){
+    $('#startDate').value = d.startDate || '';
+    $('#totalDays').value = d.totalDays ?? 30;
+    $('#dailyHours').value = d.dailyHours ?? 2; hoursOut.textContent = ($('#dailyHours').value)+' 時間';
+    $('#daysPerWeek').value = d.daysPerWeek ?? 5;
+    $('#wakeTime').value = d.wakeTime || '07:00';
+    $('#sleepTime').value = d.sleepTime || '23:30';
+    $('#studyStart').value = d.studyStart || '20:00';
+    Array.from($('#restDays').options).forEach(o=>{ o.selected = (d.restDays||[]).includes(Number(o.value)); });
+    $('#os').value = d.os || 'Windows';
+    $('#spec').value = d.spec || '16GB RAM / Mid CPU';
+    ['mediaChips','frontChks','infraChks','otherChks'].forEach(id=>{
+      $$('#'+id+' input[type=checkbox]').forEach(c=> c.checked = (d[id.replace('Chks','')]||d.media||[]).includes(c.value));
+    });
+    if(d.server){ const el = document.querySelector(`input[name="server"][value="${d.server}"]`); if(el) el.checked=true; }
+    if(d.db){ const el2 = document.querySelector(`input[name="db"][value="${d.db}"]`); if(el2) el2.checked=true; }
+    $('#level').value = d.level || '基礎済（条件分岐/繰返し/関数）';
+    $('#goal').value = d.goal || '12月までにポートフォリオ1本';
+    $('#blackoutDates').value = d.blackoutDates || '';
+    $('#weeklyCap').value = d.weeklyCap ?? '';
+    $('#reviewPct').value = d.reviewPct ?? 20;
+    $('#practicePct').value = d.practicePct ?? 60;
+    $('#care').value = d.care || '';
+  }
+
+  // ===== レベル調整 =====
+  function adjustByLevel(blocks, level){
+    const out = structuredClone(blocks);
+    const addFront = (idx, blk)=> out.splice(idx,0,blk);
+    if(level === '完全未経験'){
+      addFront(0,{key:'env',label:'環境構築/PC基礎(エディタ/CLI/venv)',hrs:4});
+      out.forEach(b=>{
+        if(/(basics|intro|templates|java-basics|spring-boot-intro|js-basics|express-intro|go-basics|gin-intro|rb-basics|rails-intro|php-basics|laravel-intro)/.test(b.key)){
+          b.hrs += 2;
+        }
+      });
+      const p = out.find(b=>b.key==='proj'); if(p) p.hrs = Math.max(4, p.hrs-2);
+    }else if(level === '個人アプリ経験あり'){
+      out.forEach(b=>{
+        if(/(basics|intro|templates|java-basics|spring-boot-intro|js-basics|express-intro|go-basics|gin-intro|rb-basics|rails-intro|php-basics|laravel-intro)/.test(b.key)){
+          b.hrs = Math.max(2, b.hrs-2);
+        }
+      });
+      const p = out.find(b=>b.key==='proj'); if(p) p.hrs += 4;
+      out.splice(out.length-1,0,{key:'review',label:'コードレビュー/改善リファクタリング',hrs:4});
+    }
+    return out;
+  }
+
+  // ===== プラン生成 =====
+  let PLAN_ROWS = [];
+
+  $('#genPlan').addEventListener('click', ()=>{
+    const v = collectInput();
+    if(!v.startDate){ alert('開始日を入力してください'); return; }
+    if(v.practicePct + v.reviewPct > 100){ alert('復習%と演習%の合計が100%を超えています'); return; }
+
+    const blackout = (v.blackoutDates||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const blackoutSet = new Set(blackout);
+
+    // ベース（サーバー）ブロック
+    let blocks = structuredClone(CURRICULUM[v.server] || []);
+
+    // レベルで調整
+    blocks = adjustByLevel(blocks, v.level);
+
+    // フロントFWを加える
+    if(['vue','react','angular','svelte'].some(f=>v.front.includes(f))){
+      const fw = v.front.includes('vue') ? 'Vue' : v.front.includes('react') ? 'React' : v.front.includes('angular') ? 'Angular' : 'Svelte';
+      blocks.splice(blocks.length-1,0,{key:'frontend-fw',label:`フロントFW(${fw})基礎`, hrs:6});
+    }
+
+    // DB基礎
+    if(v.db === 'postgres' || v.db === 'mysql' || v.db === 'sqlite' || v.db === 'oracle'){
+      const name = (v.db==='postgres')?'PostgreSQL':(v.db==='mysql')?'MySQL':(v.db==='sqlite')?'SQLite':'Oracle';
+      blocks.splice(blocks.length-1,0,{key:'db-basics',label:`${name} 基礎/接続`, hrs:4});
+    }
+
+    // インフラ
+    if((v.infra||[]).length){
+      const label = `インフラ基礎(${v.infra.join(', ')})`;
+      blocks.splice(blocks.length-1,0,{key:'infra',label,hrs:6});
+    }
+
+    // その他
+    if((v.others||[]).includes('requirements')){
+      blocks.splice(blocks.length-1,0,{key:'requirements',label:'要件定義/外部・内部設計/テスト計画',hrs:6});
+    }
+    if((v.others||[]).includes('git')){
+      blocks.splice(blocks.length-1,0,{key:'git',label:'Git/GitHub（ブランチ/PR/レビュー）',hrs:4});
+    }
+
+    // 目標タイプ
+    const proj = blocks.find(b=>b.key==='proj');
+    if(proj && v.goal.includes('ポートフォリオ')) proj.hrs += 4;
+
+    // 総学習可能時間（理論値）で軽く調整
+    const nominalTotal = v.totalDays * v.dailyHours;
+    let required = blocks.reduce((s,b)=>s+b.hrs,0);
+    if(required > nominalTotal){
+      let over = required - nominalTotal;
+      for(const b of blocks){
+        if(over<=0) break;
+        const cut = Math.min(over, Math.max(0, Math.floor(b.hrs*0.25)));
+        b.hrs -= cut; over -= cut;
+      }
+      required = blocks.reduce((s,b)=>s+b.hrs,0);
+    }
+
+    // 週上限
+    const weeklyCap = (v.weeklyCap ?? Infinity);
+
+    // ===== 日割り（学習した日だけカウント）=====
+    const rows = [];
+    let datePtr = new Date(v.startDate);
+    let studyCount = 0;
+    let blockIdx = 0;
+    let carried = 0;
+
+    while(studyCount < v.totalDays && blockIdx < blocks.length){
+      const ymd = fmtDate(datePtr);
+      const dow = datePtr.getDay();
+
+      const isRestByWeek = v.restDays.includes(dow);
+      const isBlackout = blackoutSet.has(ymd);
+
+      // 週上限の消費状況（週の月曜基準）
+      const weekStart = addDays(datePtr, -((dow+6)%7));
+      const weekKey = fmtDate(weekStart);
+      const usedThisWeek = rows.filter(r=>r.weekKey===weekKey).reduce((s,r)=>s+r.hours,0);
+      const remainingWeekly = Math.max(0, weeklyCap - usedThisWeek);
+
+      // この日学習可能か判定
+      const canStudyThisDay =
+        !isRestByWeek && !isBlackout &&
+        remainingWeekly > 0 &&
+        // 週あたりの学習可能日数の上限（daysPerWeek）も緩やかに適用
+        (rows.filter(r=>r.weekKey===weekKey).length < (v.daysPerWeek||7));
+
+      if(!canStudyThisDay){
+        datePtr = addDays(datePtr,1);  // 学習日数にカウントしない
+        continue;
+      }
+
+      const blk = blocks[blockIdx]; if(!blk) break;
+      const slotHours = Math.min(v.dailyHours, remainingWeekly);
+      let need = (carried>0?carried:blk.hrs);
+      const doHours = Math.min(slotHours, need);
+
+      rows.push({
+        date: ymd,
+        start: v.studyStart,
+        end: addHoursToTimeStr(v.studyStart, doHours),
+        topic: blk.label,
+        hours: Number(doHours.toFixed(1)),
+        detail: suggestResource(blk, v),
+        weekKey
+      });
+
+      need -= doHours;
+      if(need <= 0){ blockIdx++; carried = 0; } else { carried = need; }
+
+      studyCount++;            // ← 学習できたのでカウント
+      datePtr = addDays(datePtr,1); // 次の日へ
+    }
+
+    PLAN_ROWS = rows;
+    renderTable(rows);
+
+    const sumH = rows.reduce((s,r)=>s+r.hours,0);
+    $('#summary').textContent = `割当ブロック: ${blocks.length} / 生成日数(学習日): ${rows.length}日 / 学習合計 ${sumH.toFixed(1)}時間 (要求${required}時間 相当)`;
+  });
+
+  // 学習媒体/スタイルで“学習細目”を変化
+  function suggestResource(blk, v){
+    const media = new Set(v.media||[]);
+    const tips = [];
+    if(media.has('動画講座')) tips.push('動画講座: 視聴→写経→小タスク');
+    if(media.has('市販本')) tips.push('市販本: 章末問題→要点ノート');
+    if(media.has('Web教材')) tips.push('Web教材: Zenn/Qiitaで補強');
+    if(media.has('公式ドキュメント')) tips.push('公式Doc: 根拠リンク保存');
+    if(media.has('演習サイト')) tips.push('演習: AtCoder/Paiza類題');
+
+    if(v.style === 'インプット先行') tips.push('スタイル: 先読→後実装(タイムボックス)');
+    if(v.style === '作りながら覚える') tips.push('スタイル: 最小実装→都度リファ');
+    if(v.style === 'テスト駆動/復習重視') tips.push('スタイル: セッション末に小テスト10分');
+
+    const base = {
+      'env':'エディタ/CLI/venv・JDK/Nodeセットアップ',
+      'py-basics':'文法/venv/pytest / 最小機能',
+      'django-intro':'startproject/startapp/URL/ビュー',
+      'models-db':'モデル/マイグレ/ORM CRUD',
+      'templates':'テンプレ/フォーム/バリデーション',
+      'auth':'ログイン/ログアウト/権限',
+      'ui':'UI微調整（HTML/CSS/JS）',
+      'proj':'README/手順/スクショ整備',
+      'review':'自己レビュー/リファクタ/課題抽出',
+      'java-basics':'Java文法/コレクション/例外',
+      'spring-boot-intro':'Controller/Thymeleaf',
+      'data-jpa':'Entity/Repository/CRUD',
+      'security':'Spring Security入門',
+      'js-basics':'JS/TS文法',
+      'express-intro':'Router/ミドルウェア',
+      'db-access':'Prisma/Knex/SQL',
+      'auth-jwt':'セッション/JWT',
+      'go-basics':'Go文法/並行基礎',
+      'gin-intro':'ルーティング/ミドルウェア',
+      'db-gorm':'GORM CRUD',
+      'rb-basics':'Ruby文法',
+      'rails-intro':'MVC/ルーティング',
+      'rails-activerec':'ActiveRecord CRUD',
+      'php-basics':'PHP文法',
+      'laravel-intro':'ルート/Controller/Blade',
+      'eloquent':'Eloquent CRUD',
+      'frontend-fw':'フロントFWの基本構文',
+      'db-basics':'DBクライアント/接続/最初のCRUD',
+      'infra':'クラウド/コンテナ/CIの導入準備',
+      'requirements':'要求→外部/内部設計→テスト観点',
+      'git':'ブランチ/PR/レビュー/README'
+    };
+    const head = base[blk.key] || '';
+    return [head, ...tips].filter(Boolean).join(' ／ ');
+  }
+
+  function renderTable(rows){
+    const el = $('#result');
+    if(!rows.length){ el.innerHTML = '<div class="small">まだ生成されていません</div>'; return; }
+    let html = '<table class="plan"><colgroup>'+
+      '<col/><col/><col/><col/><col/><col/>'+
+      '</colgroup><thead><tr>'+
+      '<th>日付</th><th>開始時間</th><th>終了時間</th><th>トピック</th><th>学習時間(h)</th><th>メモ/リソース（学習細目）</th></tr></thead><tbody>';
+    for(const r of rows){
+      html += `<tr>
+        <td>${r.date}</td>
+        <td>${r.start}</td>
+        <td>${r.end}</td>
+        <td>${r.topic}</td>
+        <td>${r.hours}</td>
+        <td>${r.detail}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  // ===== エクスポート =====
+  $('#exportCsv').addEventListener('click', ()=>{
+    if(!PLAN_ROWS.length){ alert('まずプランを生成してください'); return; }
+    const header = ['date','start','end','topic','hours','detail'];
+    const lines = [header.join(',')].concat(
+      PLAN_ROWS.map(r=> header.map(h => String(r[h]).replaceAll('"','""')).map(x=>`"${x}"`).join(','))
+    );
+    const blob = new Blob(["\ufeff"+lines.join('\n')], {type:'text/csv'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'study-plan.csv'; a.click();
+  });
+
+  $('#exportXlsx').addEventListener('click', ()=>{
+    if(!PLAN_ROWS.length){ alert('まずプランを生成してください'); return; }
+    const rows = PLAN_ROWS.map(r=>({
+      '日付': r.date,
+      '開始時間': r.start,
+      '終了時間': r.end,
+      'トピック': r.topic,
+      '学習時間(h)': r.hours,
+      'メモ/リソース（学習細目）': r.detail
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Plan');
+    XLSX.writeFile(wb, 'study-plan.xlsx');
+  });
+
+  // ===== リセット =====
+  $('#clear').addEventListener('click', ()=>{ PLAN_ROWS=[]; $('#result').innerHTML=''; $('#summary').textContent=''; });
+
+  // デフォルト開始日を今日に
+  $('#startDate').value = fmtDate(new Date());
+</script>
+</body>
+</html>
